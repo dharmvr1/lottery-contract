@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 import {VRFConsumerBaseV2Plus} from "../lib/chainlink-brownie-contracts/contracts/src/v0.8/vrf/dev/VRFConsumerBaseV2Plus.sol";
 import {IVRFCoordinatorV2Plus} from "../lib/chainlink-brownie-contracts/contracts/src/v0.8/vrf/dev/interfaces/IVRFCoordinatorV2Plus.sol";
 import {VRFV2PlusClient} from "../lib/chainlink-brownie-contracts/contracts/src/v0.8/vrf/dev/libraries/VRFV2PlusClient.sol";
-
+import {console} from "../lib/forge-std/src/console.sol";
 /**
  *
  * @title Raffle contract
@@ -95,7 +95,7 @@ contract Raffle is VRFConsumerBaseV2Plus {
     // be automatically called
     function performUpkeep(bytes calldata /* performData */) external  {
        (bool upkeepNeeded, ) = checkUpkeep("");
-     
+       console.log("INside performUp keep");
        if(!upkeepNeeded){
         revert Raffle_CheckUpKeepNotNeeded(address(this).balance,s_players.length,uint256(s_raffleState));
        }        
@@ -142,4 +142,12 @@ contract Raffle is VRFConsumerBaseV2Plus {
     function getEntranceFee() external view returns (uint256) {
         return i_entranceFee;
     }
+
+    function getRaffleState() external  view returns(RaffleState) {
+        return s_raffleState;
+    }
+
+    function getPlayers(uint256 indexOfPlayer) external view returns(address){
+        return s_players[indexOfPlayer];
+    } 
 }

@@ -3,13 +3,30 @@ pragma solidity ^0.8.24;
 import {Script} from "forge-std/Script.sol";
 import {Raffle} from "../src/raffle.sol";
 import {HelperConfig} from "./HelperConfig.s.sol";
+import {CreateSubscription} from "./interaction.s.sol";
+import {AddConsumer, FundSubscription, CreateSubscription} from "./interaction.s.sol";
 
 contract DeployRaffle is Script {
-    function run() external {}
+    function run() external {
+        deployRaffle();
+    }
 
     function deployRaffle() public returns (Raffle, HelperConfig) {
         HelperConfig helperConfig = new HelperConfig();
         HelperConfig.NetworkConfig memory config = helperConfig.getConfig();
+
+        if (config.subscriptionId == 0) {
+            CreateSubscription createSubscription = new CreateSubscription();
+            (config.subscriptionId, config.vrfCoordinator) = createSubscription
+                .createSubscription(config.vrfCoordinator);
+
+            FundSubscription fundSubscription = new FundSubscription();
+            fundSubscription.fundSubscription(
+                config.vrfCoordinator,
+                config.subscriptionId,
+                config.link
+            );
+        }
 
         vm.startBroadcast();
         Raffle raffle = new Raffle(
@@ -22,6 +39,50 @@ contract DeployRaffle is Script {
         );
         vm.stopBroadcast();
 
-        return (raffle,helperConfig);
+        AddConsumer addConsumer = new AddConsumer();
+
+        addConsumer.addConsumer(address(raffle),config.vrfCoordinator,config.subscriptionId);
+
+        return (raffle, helperConfig);
+    }
+}
+
+
+contract DeployRaffleWithoutBroadCat is Script {
+    function run() external {}
+
+    function deployRaffle() public returns (Raffle, HelperConfig) {
+        HelperConfig helperConfig = new HelperConfig();
+        HelperConfig.NetworkConfig memory config = helperConfig.getConfig();
+
+        if (config.subscriptionId == 0) {
+            CreateSubscription createSubscription = new CreateSubscription();
+            (config.subscriptionId, config.vrfCoordinator) = createSubscription
+                .createSubscription(config.vrfCoordinator);
+
+            FundSubscription fundSubscription = new FundSubscription();
+            fundSubscription.fundSubscription(
+                config.vrfCoordinator,
+                config.subscriptionId,
+                config.link
+            );
+        }
+
+        
+        Raffle raffle = new Raffle(
+            config.enteranceFee,
+            config.interval,
+            config.vrfCoordinator,
+            config.gasLane,
+            config.subscriptionId,
+            config.callbackGasLimit
+        );
+      
+
+        AddConsumer addConsumer = new AddConsumer();
+
+        addConsumer.addConsumer(address(raffle),config.vrfCoordinator,config.subscriptionId);
+
+        return (raffle, helperConfig);
     }
 }
