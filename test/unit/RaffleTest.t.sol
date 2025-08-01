@@ -4,12 +4,14 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 
-import {DeployRaffle, DeployRaffleWithoutBroadCat} from "../../script/DeployRaffle.s.sol";
+import {DeployRaffle} from "../../script/DeployRaffle.s.sol";
+import {VRFCoordinatorV2_5Mock} from "../../lib/chainlink-brownie-contracts/contracts/src/v0.8/vrf/mocks/VRFCoordinatorV2_5Mock.sol";
 
 import {Raffle} from "../../src/raffle.sol";
-import {HelperConfig} from "../../script/HelperConfig.s.sol";
+import {HelperConfig, CodeConstant} from "../../script/HelperConfig.s.sol";
+import {Vm} from "../../lib/forge-std/src/Vm.sol";
 
-contract RaffleTest is Test {
+contract RaffleTest is Test, CodeConstant {
     Raffle public raffle;
     HelperConfig public helperConfig;
 
@@ -69,11 +71,10 @@ contract RaffleTest is Test {
         raffle.enterRaffle{value: enteranceFee}();
     }
 
-    function testDontAllowPlayersToAllowEnterWhileCalculating() public {
-        vm.prank(PLAYER);
-        raffle.enterRaffle{value: enteranceFee}();
-        vm.warp(block.timestamp + interval + 1);
-        vm.roll(block.number + 1);
+    function testDontAllowPlayersToAllowEnterWhileCalculating()
+        public
+        RaffleEntered
+    {
         raffle.performUpkeep("");
         vm.expectRevert(Raffle.Raffle_NotOpen.selector);
         vm.prank(PLAYER);
@@ -89,15 +90,128 @@ contract RaffleTest is Test {
         assert(!upKeepNeeded);
     }
 
-    function testCheckUpKeepReturnsFalseIfRefelNotOpen() public {
-        vm.prank(PLAYER);
-        raffle.enterRaffle{value: enteranceFee}();
-        vm.warp(block.timestamp + interval + 1);
-        vm.roll(block.number + 1);
+    function testCheckUpKeepReturnsFalseIfRefelNotOpen() public RaffleEntered {
         raffle.performUpkeep("");
 
         (bool upKeepNeeded, ) = raffle.checkUpkeep("");
 
         assert(!upKeepNeeded);
+    }
+
+    function testPerfromKeepUpCanOnlyRunIfCheckKeepUpIsTrue()
+        public
+        RaffleEntered
+    {
+        raffle.performUpkeep("");
+    }
+
+    function testPerformUpkeepRevertsIfCheckUpKeepIsFalse() public {
+        uint256 currentBalance = 0;
+        uint256 numPlayers = 0;
+        Raffle.RaffleState rState = raffle.getRaffleState();
+
+        vm.prank(PLAYER);
+        raffle.enterRaffle{value: enteranceFee}();
+        currentBalance = currentBalance + enteranceFee;
+
+        numPlayers = 1;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Raffle.Raffle_CheckUpKeepNotNeeded.selector,
+                currentBalance,
+                numPlayers,
+                rState
+            )
+        );
+        raffle.performUpkeep("");
+    }
+
+    modifier RaffleEntered() {
+        vm.prank(PLAYER);
+
+        raffle.enterRaffle{value: enteranceFee}();
+        vm.warp(block.timestamp + interval + 1);
+        vm.roll(block.number + 1);
+
+        _;
+    }
+
+    function testPerformUpkeppUpdatesRaffleStateAndEmitsRequestId()
+        public
+        RaffleEntered
+    {
+        vm.recordLogs();
+        raffle.performUpkeep("");
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+
+        bytes32 requestId = entries[1].topics[1];
+
+        Raffle.RaffleState raffleState = raffle.getRaffleState();
+
+        assert(uint256(raffleState) == 1);
+    }
+
+    function testFUlfillRandomWordsCanOnlyBeCalledAfterPerformUpKeep(
+        uint256 randomRequestId
+    ) public skipFork {
+        vm.expectRevert(VRFCoordinatorV2_5Mock.InvalidRequest.selector);
+        VRFCoordinatorV2_5Mock(vrfCoordinator).fulfillRandomWords(
+            randomRequestId,
+            address(raffle)
+        );
+    }
+
+    modifier skipFork() {
+        if (block.chainid != LOCAL_CHAINID) {
+            return;
+        }
+         _;
+    }
+
+    function testFUlfillRandomWordsPicksAwinnerResetAndSendMoney()
+        public
+        RaffleEntered
+        skipFork
+    {
+        uint256 additionalEntrants = 3;
+        uint256 startingIndex = 1;
+        address expectedWinner = address(1);
+
+        for (
+            uint256 i = startingIndex;
+            i < additionalEntrants + startingIndex;
+            i++
+        ) {
+            address newPlayer = address(uint160(i));
+            vm.prank(newPlayer);
+            vm.deal(newPlayer, 3 ether);
+            raffle.enterRaffle{value: enteranceFee}();
+        }
+
+        uint256 startingTimeStamp = raffle.getLastTimeStamp();
+        uint256 winnerStartingBalance = expectedWinner.balance;
+        vm.recordLogs();
+        raffle.performUpkeep("");
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        bytes32 requestId = entries[1].topics[1];
+
+        VRFCoordinatorV2_5Mock(vrfCoordinator).fulfillRandomWords(
+            uint256(requestId),
+            address(raffle)
+        );
+
+        // assert
+
+        address recentWinner = raffle.getRecentWinner();
+        Raffle.RaffleState raffleState = raffle.getRaffleState();
+        uint256 winnerBalance = recentWinner.balance;
+        uint256 endingTimeStamp = raffle.getLastTimeStamp();
+        uint256 prize = enteranceFee * (additionalEntrants + 1);
+
+        assert(recentWinner == expectedWinner);
+        assert(uint256(raffleState) == 0);
+        assert(winnerBalance == winnerStartingBalance + prize);
+        assert(endingTimeStamp > startingTimeStamp);
     }
 }

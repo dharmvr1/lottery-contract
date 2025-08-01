@@ -18,17 +18,18 @@ contract DeployRaffle is Script {
         if (config.subscriptionId == 0) {
             CreateSubscription createSubscription = new CreateSubscription();
             (config.subscriptionId, config.vrfCoordinator) = createSubscription
-                .createSubscription(config.vrfCoordinator);
+                .createSubscription(config.vrfCoordinator,config.acount);
 
             FundSubscription fundSubscription = new FundSubscription();
             fundSubscription.fundSubscription(
                 config.vrfCoordinator,
                 config.subscriptionId,
-                config.link
+                config.link,
+                config.acount
             );
         }
 
-        vm.startBroadcast();
+        vm.startBroadcast(config.acount);
         Raffle raffle = new Raffle(
             config.enteranceFee,
             config.interval,
@@ -41,48 +42,10 @@ contract DeployRaffle is Script {
 
         AddConsumer addConsumer = new AddConsumer();
 
-        addConsumer.addConsumer(address(raffle),config.vrfCoordinator,config.subscriptionId);
+        addConsumer.addConsumer(address(raffle),config.vrfCoordinator,config.subscriptionId,config.acount);
 
         return (raffle, helperConfig);
     }
 }
 
 
-contract DeployRaffleWithoutBroadCat is Script {
-    function run() external {}
-
-    function deployRaffle() public returns (Raffle, HelperConfig) {
-        HelperConfig helperConfig = new HelperConfig();
-        HelperConfig.NetworkConfig memory config = helperConfig.getConfig();
-
-        if (config.subscriptionId == 0) {
-            CreateSubscription createSubscription = new CreateSubscription();
-            (config.subscriptionId, config.vrfCoordinator) = createSubscription
-                .createSubscription(config.vrfCoordinator);
-
-            FundSubscription fundSubscription = new FundSubscription();
-            fundSubscription.fundSubscription(
-                config.vrfCoordinator,
-                config.subscriptionId,
-                config.link
-            );
-        }
-
-        
-        Raffle raffle = new Raffle(
-            config.enteranceFee,
-            config.interval,
-            config.vrfCoordinator,
-            config.gasLane,
-            config.subscriptionId,
-            config.callbackGasLimit
-        );
-      
-
-        AddConsumer addConsumer = new AddConsumer();
-
-        addConsumer.addConsumer(address(raffle),config.vrfCoordinator,config.subscriptionId);
-
-        return (raffle, helperConfig);
-    }
-}
